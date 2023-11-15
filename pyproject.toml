@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gpt_task"
+authors = [{ name = "lukew", email = "lukew@crynux.ai" }]
+description = "A general framework to define and execute the GPT text generation task."
+readme = "README.md"
+requires-python = ">=3.7"
+classifiers = ["Programming Language :: Python :: 3"]
+version = "0.0.1"
+dependencies = [
+    "torch>=2.0",
+    "transformers>=4.26.1",
+    "flash-attn>=2.3.3"
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["gpt_task*"]
