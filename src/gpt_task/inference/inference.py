@@ -53,26 +53,41 @@ def run_task(
 
     set_seed(args.seed)
 
-    pipeline_args = {}
 
+    torch_dtype = None
     if args.dtype == "float16":
-        pipeline_args["torch_dtype"] = torch.float16
+        torch_dtype = torch.float16
     elif args.dtype == "float32":
-        pipeline_args["torch_dtype"] = torch.float32
+        torch_dtype = torch.float32
     elif args.dtype == "bfloat16":
-        pipeline_args["torch_dtype"] = torch.bfloat16
+        torch_dtype = torch.bfloat16
 
+    model_kwargs = {}
     if args.quantize_bits == 4:
-        pipeline_args["load_in_4bit"] = True
+        model_kwargs["load_in_4bit"] = True
     elif args.quantize_bits == 8:
-        pipeline_args["load_in_8bit"] = True
+        model_kwargs["load_in_8bit"] = True
+
+    tokenizer = AutoTokenizer.from_pretrained(
+        args.model,
+        use_fast=False,
+        trust_remote_code=True,
+    )
 
     pipe = pipeline(
         "text-generation",
         model=args.model,
-        device_map="auto",
+        config=args.model,
+        tokenizer=tokenizer,
         trust_remote_code=True,
-        **pipeline_args,
+        use_fast=False,
+        device_map="auto",
+        torch_dtype=torch_dtype,
+        model_kwargs=dict(
+            offload_folder="offload",
+            offload_state_dict=True,
+            **model_kwargs,
+        )
     )
 
     generation_config = {"num_return_sequences": 1, "max_new_tokens": 256}
@@ -85,7 +100,6 @@ def run_task(
                 generation_config[k] = v
 
     chats = [m.model_dump() for m in args.messages]
-    tokenizer = AutoTokenizer.from_pretrained(args.model, use_fast=False)
     if tokenizer.chat_template is not None:
         inputs = tokenizer.apply_chat_template(
             chats, tokenize=False, add_generation_prompt=True
