@@ -1,28 +1,29 @@
 from typing import List, Literal, Optional
 
 from pydantic import BaseModel
+from typing_extensions import TypedDict
 
 from .utils import NonEmptyString
 
 
-class GPTGenerationConfig(BaseModel):
-    max_new_tokens: Optional[int] = None
-
-    do_sample: Optional[bool] = None
-    num_beams: Optional[int] = None
-
-    temperature: Optional[float] = None
-    typical_p: Optional[float] = None
-    top_k: Optional[int] = None
-    top_p: Optional[float] = None
-    repetition_penalty: Optional[float] = None
-
-    num_return_sequences: Optional[int] = None
-
-
-class Message(BaseModel):
+class Message(TypedDict):
     role: Literal["system", "user", "assistant"]
     content: str
+
+
+class GPTGenerationConfig(TypedDict, total=False):
+    max_new_tokens: int
+
+    do_sample: bool
+    num_beams: int
+
+    temperature: float
+    typical_p: float
+    top_k: int
+    top_p: float
+    repetition_penalty: float
+
+    num_return_sequences: int
 
 
 class GPTTaskArgs(BaseModel):

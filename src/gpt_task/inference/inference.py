@@ -3,38 +3,18 @@ from __future__ import annotations
 from typing import Any, List, Literal, Mapping, Sequence, Union
 
 import torch
+from pydantic import TypeAdapter
 from transformers import AutoTokenizer, pipeline, set_seed
-from typing_extensions import TypedDict
 
 from gpt_task import models
-
-
-class Message(TypedDict):
-    role: Literal["system", "user", "assistant"]
-    content: str
-
-
-class GPTGenerationConfig(TypedDict, total=False):
-    max_new_tokens: int
-
-    do_sample: bool
-    num_beams: int
-
-    temperature: float
-    typical_p: float
-    top_k: int
-    top_p: float
-    repetition_penalty: float
-
-    num_return_sequences: int
 
 
 def run_task(
     args: models.GPTTaskArgs | None = None,
     *,
     model: str | None = None,
-    messages: Sequence[Message | Mapping[str, Any]] | None = None,
-    generation_config: GPTGenerationConfig | Mapping[str, Any] | None = None,
+    messages: Sequence[models.Message | Mapping[str, Any]] | None = None,
+    generation_config: models.GPTGenerationConfig | Mapping[str, Any] | None = None,
     seed: int = 0,
     dtype: Literal["float16", "bfloat16", "float32", "auto"] = "auto",
     quantize_bits: Literal[4, 8] | None = None,
@@ -52,7 +32,6 @@ def run_task(
         )
 
     set_seed(args.seed)
-
 
     torch_dtype = None
     if args.dtype == "float16":
@@ -87,19 +66,21 @@ def run_task(
             offload_folder="offload",
             offload_state_dict=True,
             **model_kwargs,
-        )
+        ),
     )
 
     generation_config = {"num_return_sequences": 1, "max_new_tokens": 256}
     if args.generation_config is not None:
-        customer_config = args.generation_config.model_dump(
-            exclude_defaults=True, exclude_none=True
+        customer_config = TypeAdapter(models.GPTGenerationConfig).dump_python(
+            args.generation_config,
+            exclude_none=True,
+            exclude_unset=True,
         )
         for k, v in customer_config.items():
             if v is not None:
                 generation_config[k] = v
 
-    chats = [m.model_dump() for m in args.messages]
+    chats = [dict(**m) for m in args.messages]
     if tokenizer.chat_template is not None:
         inputs = tokenizer.apply_chat_template(
             chats, tokenize=False, add_generation_prompt=True

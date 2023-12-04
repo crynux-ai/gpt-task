@@ -1,3 +1,3 @@
-from .args import GPTGenerationConfig, GPTTaskArgs
+from .args import GPTGenerationConfig, GPTTaskArgs, Message
 
-__all__ = ["GPTGenerationConfig", "GPTTaskArgs"]
+__all__ = ["GPTGenerationConfig", "GPTTaskArgs", "Message"]
