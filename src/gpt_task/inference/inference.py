@@ -7,6 +7,9 @@ from pydantic import TypeAdapter
 from transformers import AutoTokenizer, pipeline, set_seed
 
 from gpt_task import models
+from gpt_task.config import Config
+
+from .utils import load_model_kwargs
 
 
 def run_task(
@@ -18,6 +21,7 @@ def run_task(
     seed: int = 0,
     dtype: Literal["float16", "bfloat16", "float32", "auto"] = "auto",
     quantize_bits: Literal[4, 8] | None = None,
+    config: Config | None = None,
 ) -> Union[str, List[str]]:
     if args is None:
         args = models.GPTTaskArgs.model_validate(
@@ -41,17 +45,19 @@ def run_task(
     elif args.dtype == "bfloat16":
         torch_dtype = torch.bfloat16
 
-    model_kwargs = {}
-    if args.quantize_bits == 4:
-        model_kwargs["load_in_4bit"] = True
-    elif args.quantize_bits == 8:
-        model_kwargs["load_in_8bit"] = True
+    model_kwargs = load_model_kwargs(config=config)
 
     tokenizer = AutoTokenizer.from_pretrained(
         args.model,
         use_fast=False,
         trust_remote_code=True,
+        **model_kwargs
     )
+
+    if args.quantize_bits == 4:
+        model_kwargs["load_in_4bit"] = True
+    elif args.quantize_bits == 8:
+        model_kwargs["load_in_8bit"] = True
 
     pipe = pipeline(
         "text-generation",
