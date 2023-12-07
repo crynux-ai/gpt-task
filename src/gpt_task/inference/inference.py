@@ -9,7 +9,10 @@ from transformers import AutoTokenizer, pipeline, set_seed
 from gpt_task import models
 from gpt_task.config import Config
 
-from .utils import load_model_kwargs
+from .utils import load_model_kwargs, use_deterministic_mode
+
+
+use_deterministic_mode()
 
 
 def run_task(
