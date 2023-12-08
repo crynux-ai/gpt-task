@@ -6,15 +6,9 @@ messages = [
 
 
 res = run_task(
-    model="THUDM/chatglm3-6b",
+    model="mistralai/Mistral-7B-Instruct-v0.1",
     messages=messages,
-    generation_config={
-        "repetition_penalty": 1.1,
-        "do_sample": True,
-        "temperature": 0.3,
-    },
     seed=42,
-    dtype="float16",
     quantize_bits=4,
 )
 print(res)
