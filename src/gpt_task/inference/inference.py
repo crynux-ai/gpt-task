@@ -11,8 +11,17 @@ from gpt_task.config import Config
 
 from .utils import load_model_kwargs, use_deterministic_mode
 
-
 use_deterministic_mode()
+
+
+def _find_prompt_tokens(input_tokens: List[int], output_tokens: List[int]) -> int:
+    start = output_tokens.index(input_tokens[0])
+    if start == -1:
+        return 0
+    end = output_tokens.index(input_tokens[-1], start + len(input_tokens) - 1)
+    if end == -1:
+        return 0
+    return end + 1
 
 
 def run_task(
@@ -25,7 +34,7 @@ def run_task(
     dtype: Literal["float16", "bfloat16", "float32", "auto"] = "auto",
     quantize_bits: Literal[4, 8] | None = None,
     config: Config | None = None,
-) -> Union[str, List[str]]:
+) -> models.GPTTaskResponse:
     if args is None:
         args = models.GPTTaskArgs.model_validate(
             {
@@ -51,10 +60,7 @@ def run_task(
     model_kwargs = load_model_kwargs(config=config)
 
     tokenizer = AutoTokenizer.from_pretrained(
-        args.model,
-        use_fast=False,
-        trust_remote_code=True,
-        **model_kwargs
+        args.model, use_fast=False, trust_remote_code=True, **model_kwargs
     )
 
     if args.quantize_bits == 4:
@@ -99,18 +105,60 @@ def run_task(
 
     output = pipe(
         inputs,
-        return_full_text=False,
-        clean_up_tokenization_spaces=True,
+        return_tensors=True,
         **generation_config,
     )
     assert output is not None
     assert isinstance(output, list)
 
-    res = []
+    res_token_ids = []
     for single in output:
         assert isinstance(single, dict)
-        res.append(single["generated_text"])
+        res_token_ids.append(single["generated_token_ids"])
 
-    if len(res) == 1:
-        return res[0]
-    return res
+    assert len(res_token_ids) > 0
+
+    input_tokens = tokenizer.encode(inputs, add_special_tokens=False)
+    prompt_tokens = _find_prompt_tokens(input_tokens, res_token_ids[0])
+
+    completion_tokens = 0
+    output_texts = []
+    finish_reasons = []
+    for token_ids in res_token_ids:
+        # when the last token is eos token, finish reason is stop, otherwise is length
+        if token_ids[-1] == tokenizer.eos_token_id:
+            finish_reason = "stop"
+        else:
+            finish_reason = "length"
+        finish_reasons.append(finish_reason)
+
+        completion_tokens += len(token_ids) - prompt_tokens
+
+        text = tokenizer.decode(
+            token_ids[prompt_tokens:],
+            skip_special_tokens=True,
+            clean_up_tokenization_spaces=True,
+        )
+        output_texts.append(text)
+
+    usage: models.Usage = {
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": prompt_tokens + completion_tokens,
+    }
+
+    choices: List[models.ResponseChoice] = [
+        {
+            "finish_reason": reason,
+            "message": {"role": "assistant", "content": text},
+            "index": i,
+        }
+        for i, (reason, text) in enumerate(zip(finish_reasons, output_texts))
+    ]
+
+    resp: models.GPTTaskResponse = {
+        "model": args.model,
+        "choices": choices,
+        "usage": usage,
+    }
+    return resp
