@@ -16,8 +16,12 @@ use_deterministic_mode()
 
 def _find_prompt_tokens(input_tokens: List[int], output_tokens: List[int]) -> int:
     start = output_tokens.index(input_tokens[0])
+    if start == -1:
+        return 0
     end = output_tokens.index(input_tokens[-1], start + len(input_tokens) - 1)
-    return end
+    if end == -1:
+        return 0
+    return end + 1
 
 
 def run_task(
