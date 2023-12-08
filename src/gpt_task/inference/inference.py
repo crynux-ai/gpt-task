@@ -14,6 +14,12 @@ from .utils import load_model_kwargs, use_deterministic_mode
 use_deterministic_mode()
 
 
+def _find_prompt_tokens(input_tokens: List[int], output_tokens: List[int]) -> int:
+    start = output_tokens.index(input_tokens[0])
+    end = output_tokens.index(input_tokens[-1], start + len(input_tokens) - 1)
+    return end
+
+
 def run_task(
     args: models.GPTTaskArgs | None = None,
     *,
@@ -108,14 +114,8 @@ def run_task(
 
     assert len(res_token_ids) > 0
 
-    origin_text = ""
-    prompt_tokens = 0
-    for i, token in enumerate(res_token_ids[0]):
-        origin_text += tokenizer.decode(token)
-        if origin_text == inputs:
-            prompt_tokens = i + 1
-            break
-    assert prompt_tokens > 0
+    input_tokens = tokenizer.encode(inputs, add_special_tokens=False)
+    prompt_tokens = _find_prompt_tokens(input_tokens, res_token_ids[0])
 
     completion_tokens = 0
     output_texts = []
