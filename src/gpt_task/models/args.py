@@ -34,3 +34,21 @@ class GPTTaskArgs(BaseModel):
     seed: int = 0
     dtype: Literal["float16", "bfloat16", "float32", "auto"] = "auto"
     quantize_bits: Optional[Literal[4, 8]] = None
+
+
+class Usage(TypedDict):
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+
+
+class ResponseChoice(TypedDict):
+    index: int
+    message: Message
+    finish_reason: Literal["stop", "length"]
+
+
+class GPTTaskResponse(TypedDict):
+    model: NonEmptyString
+    choices: List[ResponseChoice]
+    usage: Usage
