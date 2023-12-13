@@ -9,7 +9,7 @@ from transformers import AutoTokenizer, pipeline, set_seed
 from gpt_task import models
 from gpt_task.config import Config
 
-from .utils import load_model_kwargs, use_deterministic_mode
+from .utils import load_model_kwargs, use_deterministic_mode, cpu_multinomial
 
 use_deterministic_mode()
 
@@ -103,11 +103,12 @@ def run_task(
     else:
         inputs = "\n".join(c["content"] for c in chats)
 
-    output = pipe(
-        inputs,
-        return_tensors=True,
-        **generation_config,
-    )
+    with cpu_multinomial(args.seed):
+        output = pipe(
+            inputs,
+            return_tensors=True,
+            **generation_config,
+        )
     assert output is not None
     assert isinstance(output, list)
 

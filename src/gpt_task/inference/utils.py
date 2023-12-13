@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import os
+from contextlib import contextmanager
 from typing import Any, Dict
 
 import torch
+
 from gpt_task.config import Config, get_config
 
 
@@ -36,10 +38,37 @@ def use_deterministic_mode():
     r"""
     use deterministic mode
     """
-    os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
-    os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':16:8'
-    torch.use_deterministic_algorithms(True)
+    os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":16:8"
+    torch.use_deterministic_algorithms(True, warn_only=True)
 
     if torch.cuda.is_available():
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
+
+
+@contextmanager
+def cpu_multinomial(seed: int = 0):
+    origin_multinomial = torch.multinomial
+    default_generator = torch.Generator("cpu").manual_seed(seed)
+
+    def _new_multinomial(
+        input, num_samples, replacement=False, generator=None, out=None
+    ):
+        origin_device = input.get_device()
+        if origin_device != -1:
+            input = input.to(device="cpu", dtype=torch.float)
+        output = origin_multinomial(
+            input=input,
+            num_samples=num_samples,
+            replacement=replacement,
+            generator=default_generator,
+            out=out,
+        )
+        if origin_device != -1:
+            output = output.to(device=origin_device)
+        return output
+
+    torch.multinomial = _new_multinomial
+    yield
+    torch.multinomial = origin_multinomial
