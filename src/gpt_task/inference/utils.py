@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import os
-from contextlib import contextmanager
+from collections import UserDict
 from typing import Any, Dict
 
 import torch
+from transformers.utils import ModelOutput
 
 from gpt_task.config import Config, get_config
 
@@ -47,28 +48,36 @@ def use_deterministic_mode():
         torch.backends.cudnn.benchmark = False
 
 
-@contextmanager
-def cpu_multinomial(seed: int = 0):
-    origin_multinomial = torch.multinomial
-    default_generator = torch.Generator("cpu").manual_seed(seed)
-
-    def _new_multinomial(
-        input, num_samples, replacement=False, generator=None, out=None
-    ):
-        origin_device = input.get_device()
-        if origin_device != -1:
-            input = input.to(device="cpu", dtype=torch.float)
-        output = origin_multinomial(
-            input=input,
-            num_samples=num_samples,
-            replacement=replacement,
-            generator=default_generator,
-            out=out,
+def ensure_tensor_on_device(inputs, device):
+    if isinstance(inputs, ModelOutput):
+        return ModelOutput(
+            {
+                name: ensure_tensor_on_device(tensor, device)
+                for name, tensor in inputs.items()
+            }
         )
-        if origin_device != -1:
-            output = output.to(device=origin_device)
-        return output
-
-    torch.multinomial = _new_multinomial
-    yield
-    torch.multinomial = origin_multinomial
+    elif isinstance(inputs, dict):
+        return {
+            name: ensure_tensor_on_device(tensor, device)
+            for name, tensor in inputs.items()
+        }
+    elif isinstance(inputs, UserDict):
+        return UserDict(
+            {
+                name: ensure_tensor_on_device(tensor, device)
+                for name, tensor in inputs.items()
+            }
+        )
+    elif isinstance(inputs, list):
+        return [ensure_tensor_on_device(item, device) for item in inputs]
+    elif isinstance(inputs, tuple):
+        return tuple([ensure_tensor_on_device(item, device) for item in inputs])
+    elif isinstance(inputs, torch.Tensor):
+        if device == torch.device("cpu") and inputs.dtype in {
+            torch.float16,
+            torch.bfloat16,
+        }:
+            inputs = inputs.float()
+        return inputs.to(device)
+    else:
+        return inputs
