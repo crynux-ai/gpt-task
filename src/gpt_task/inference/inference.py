@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, List, Literal, Mapping, Sequence, Union
+from typing import Any, List, Literal, Mapping, Sequence
 
 import torch
 from pydantic import TypeAdapter

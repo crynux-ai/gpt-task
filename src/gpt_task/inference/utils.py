@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import os
+from collections import UserDict
 from typing import Any, Dict
 
 import torch
+from transformers.utils import ModelOutput
+
 from gpt_task.config import Config, get_config
 
 
@@ -36,9 +39,9 @@ def use_deterministic_mode():
     r"""
     use deterministic mode
     """
-    os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
-    os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':16:8'
-    torch.use_deterministic_algorithms(True)
+    os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":16:8"
+    torch.use_deterministic_algorithms(True, warn_only=True)
 
     if torch.cuda.is_available():
         torch.backends.cudnn.deterministic = True
