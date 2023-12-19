@@ -17,7 +17,6 @@ dependencies = [
     "transformers",
     "transformers_stream_generator",
     "sentencepiece",
-    "flash-attn",
     "accelerate",
     "bitsandbytes",
     "tiktoken",
