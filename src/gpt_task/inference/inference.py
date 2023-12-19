@@ -9,7 +9,7 @@ from transformers import AutoTokenizer, pipeline, set_seed
 from gpt_task import models
 from gpt_task.config import Config
 
-from .utils import load_model_kwargs, use_deterministic_mode, ensure_tensor_on_device
+from .utils import load_model_kwargs, use_deterministic_mode
 
 use_deterministic_mode()
 
@@ -84,26 +84,6 @@ def run_task(
         ),
     )
 
-    origin_device = pipe.device
-
-    # change pipeline device to cpu to make all operators excepts the llm model perform on cpu
-    pipe.device = torch.device("cpu")
-
-    def _move_to_device(module, args, kwargs):
-        args = ensure_tensor_on_device(args, origin_device)
-        kwargs = ensure_tensor_on_device(kwargs, origin_device)
-        return args, kwargs
-
-    def _move_to_cpu(module, args, output):
-        if "logits" in output:
-            output["logits"] = ensure_tensor_on_device(
-                output["logits"], torch.device("cpu")
-            )
-        return output
-
-    pre_hook = pipe.model.register_forward_pre_hook(_move_to_device, with_kwargs=True, prepend=True)  # type: ignore
-    after_hook = pipe.model.register_forward_hook(_move_to_cpu)
-
     generation_config = {"num_return_sequences": 1, "max_new_tokens": 256}
     if args.generation_config is not None:
         customer_config = TypeAdapter(models.GPTGenerationConfig).dump_python(
@@ -130,9 +110,6 @@ def run_task(
     )
     assert output is not None
     assert isinstance(output, list)
-
-    pre_hook.remove()
-    after_hook.remove()
 
     res_token_ids = []
     for single in output:
