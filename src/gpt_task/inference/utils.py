@@ -28,8 +28,14 @@ def load_model_kwargs(config: Config | None = None) -> Dict[str, Any]:
             scheme, host = config.proxy.host.split("://", 2)
         else:
             scheme, host = "", config.proxy.host
+        
+        proxy_str = ""
+        if scheme != "":
+            proxy_str += f"{scheme}://"
+        if config.proxy.username != "":
+            proxy_str += f"{config.proxy.username}:{config.proxy.password}@"
+        proxy_str += f"{host}:{config.proxy.port}"
 
-        proxy_str = f"{scheme}://{config.proxy.username}:{config.proxy.password}@{host}:{config.proxy.port}"
         res["proxies"] = {"http": proxy_str, "https": proxy_str}
 
     return res
