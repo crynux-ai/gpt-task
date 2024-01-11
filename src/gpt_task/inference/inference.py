@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any, List, Literal, Mapping, Sequence
 
 import torch
@@ -9,8 +10,10 @@ from transformers import AutoTokenizer, pipeline, set_seed
 from gpt_task import models
 from gpt_task.config import Config
 
-from .utils import load_model_kwargs, use_deterministic_mode
 from .errors import wrap_error
+from .utils import load_model_kwargs, use_deterministic_mode
+
+_logger = logging.getLogger(__name__)
 
 use_deterministic_mode()
 
@@ -49,7 +52,11 @@ def run_task(
             }
         )
 
+    _logger.info("Task starts")
+
     set_seed(args.seed)
+
+    _logger.info("Start loading pipeline")
 
     torch_dtype = None
     if args.dtype == "float16":
@@ -85,6 +92,10 @@ def run_task(
             **model_kwargs,
         ),
     )
+
+    _logger.info("Loading pipeline completes")
+
+    _logger.info("Start text generation")
 
     generation_config = {"num_return_sequences": 1, "max_new_tokens": 256}
     if args.generation_config is not None:
@@ -163,4 +174,6 @@ def run_task(
         "choices": choices,
         "usage": usage,
     }
+
+    _logger.info("Text generation completes")
     return resp
