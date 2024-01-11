@@ -10,6 +10,7 @@ from gpt_task import models
 from gpt_task.config import Config
 
 from .utils import load_model_kwargs, use_deterministic_mode
+from .errors import wrap_error
 
 use_deterministic_mode()
 
@@ -24,6 +25,7 @@ def _find_prompt_tokens(input_tokens: List[int], output_tokens: List[int]) -> in
     return end + 1
 
 
+@wrap_error
 def run_task(
     args: models.GPTTaskArgs | None = None,
     *,
