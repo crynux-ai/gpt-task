@@ -1,6 +1,6 @@
 from contextlib import contextmanager
 from functools import wraps
-from typing import Iterable, Type
+from typing import Callable, Iterable, Type, TypeVar
 
 import torch.cuda
 from huggingface_hub.utils import (GatedRepoError, LocalEntryNotFoundError,
@@ -8,6 +8,7 @@ from huggingface_hub.utils import (GatedRepoError, LocalEntryNotFoundError,
                                    RevisionNotFoundError)
 from pydantic import ValidationError
 from requests import ConnectionError, HTTPError
+from typing_extensions import ParamSpec
 
 __all__ = [
     "wrap_error",
@@ -93,10 +94,14 @@ def error_context():
         raise TaskExecutionError from e
 
 
-def wrap_error(f):
+T = TypeVar("T")
+P = ParamSpec("P")
+
+
+def wrap_error(f: Callable[P, T]) -> Callable[P, T]:
     @wraps(f)
-    def inner(*args, **kwargs):
+    def inner(*args: P.args, **kwargs: P.kwargs) -> T:
         with error_context():
-            f(*args, **kwargs)
+            return f(*args, **kwargs)
 
     return inner
