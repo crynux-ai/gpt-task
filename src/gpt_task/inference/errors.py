@@ -7,9 +7,15 @@ from huggingface_hub.utils import (GatedRepoError, LocalEntryNotFoundError,
                                    RepositoryNotFoundError,
                                    RevisionNotFoundError)
 from pydantic import ValidationError
-from requests import HTTPError
+from requests import ConnectionError, HTTPError
 
-__all__ = ["wrap_error"]
+__all__ = [
+    "wrap_error",
+    "TaskArgsInvalid",
+    "ModelInvalid",
+    "ModelDownloadError",
+    "TaskExecutionError",
+]
 
 
 class TaskArgsInvalid(ValueError):
@@ -72,7 +78,7 @@ def error_context():
             ],
         ):
             raise ModelInvalid from e
-        elif match_exception(e, [HTTPError]):
+        elif match_exception(e, [HTTPError, ConnectionError]):
             raise ModelDownloadError from e
         else:
             raise TaskExecutionError from e
