@@ -13,8 +13,8 @@ version = "0.0.1"
 dependencies = [
     "numpy",
     "scipy",
-    "torch",
-    "transformers",
+    "torch>=1.4",
+    "transformers>=4.35.2",
     "transformers_stream_generator",
     "sentencepiece",
     "accelerate",
