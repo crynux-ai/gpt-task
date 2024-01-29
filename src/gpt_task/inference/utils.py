@@ -21,8 +21,8 @@ def load_model_kwargs(config: Config | None = None) -> Dict[str, Any]:
         config = get_config()
 
     res = {}
-    if config.hf_cache_dir is not None:
-        res["cache_dir"] = config.hf_cache_dir
+    if config.data_dir is not None:
+        res["cache_dir"] = config.data_dir.models.huggingface
     if config.proxy is not None and config.proxy.host != "":
         if "://" in config.proxy.host:
             scheme, host = config.proxy.host.split("://", 2)

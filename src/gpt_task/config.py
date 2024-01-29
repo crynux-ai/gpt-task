@@ -62,6 +62,14 @@ class YamlConfigSettingsSource(PydanticBaseSettingsSource):
         return d
 
 
+class ModelsDirConfig(BaseModel):
+    huggingface: str
+
+
+class DataDirConfig(BaseModel):
+    models: ModelsDirConfig
+
+
 class ProxyConfig(BaseModel):
     host: str = ""
     port: int = 8080
@@ -70,14 +78,13 @@ class ProxyConfig(BaseModel):
 
 
 class Config(BaseSettings):
-    hf_cache_dir: str | None = None
+    data_dir: DataDirConfig | None = None
     proxy: ProxyConfig | None = None
 
     model_config = YamlSettingsConfigDict(
         env_nested_delimiter="__",
         yaml_file=os.getenv("GPT_TASK_CONFIG", "config.yml"),
         env_file=".env",
-        env_prefix="gpt_"
     )
 
     @classmethod
