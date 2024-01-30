@@ -5,7 +5,7 @@ from typing import Any, List, Literal, Mapping, Sequence
 
 import torch
 from pydantic import TypeAdapter
-from transformers import AutoTokenizer, pipeline, set_seed
+from transformers import AutoConfig, AutoTokenizer, pipeline, set_seed
 
 from gpt_task import models
 from gpt_task.config import Config
@@ -53,6 +53,7 @@ def run_task(
         )
 
     _logger.info("Task starts")
+    _logger.debug(f"task args: {args}")
 
     set_seed(args.seed)
 
@@ -67,9 +68,16 @@ def run_task(
         torch_dtype = torch.bfloat16
 
     model_kwargs = load_model_kwargs(config=config)
+    _logger.debug(f"model kwargs: {model_kwargs}")
 
     tokenizer = AutoTokenizer.from_pretrained(
         args.model, use_fast=False, trust_remote_code=True, **model_kwargs
+    )
+    model_config = AutoConfig.from_pretrained(
+        args.model,
+        _from_pipeline="text-generation",
+        trust_remote_code=True,
+        **model_kwargs,
     )
 
     if args.quantize_bits == 4:
@@ -80,7 +88,7 @@ def run_task(
     pipe = pipeline(
         "text-generation",
         model=args.model,
-        config=args.model,
+        config=model_config,
         tokenizer=tokenizer,
         trust_remote_code=True,
         use_fast=False,
