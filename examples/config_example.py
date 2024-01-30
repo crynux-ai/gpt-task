@@ -1,6 +1,6 @@
 import logging
 
-from gpt_task.config import Config, ProxyConfig
+from gpt_task.config import Config, ProxyConfig, DataDirConfig, ModelsDirConfig
 from gpt_task.inference import run_task
 
 logging.basicConfig(
@@ -19,6 +19,9 @@ res = run_task(
     model="gpt2",
     messages=messages,
     seed=42,
-    config=Config(hf_cache_dir="./.cache", proxy=ProxyConfig(host="http://localhost")),
+    config=Config(
+        data_dir=DataDirConfig(models=ModelsDirConfig(huggingface=".cache")),
+        proxy=ProxyConfig(host="http://127.0.0.1", port=8080)
+    )
 )
 print(res)
