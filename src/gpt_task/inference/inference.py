@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, List, Literal, Mapping, Sequence
+from typing import Any, List, Literal, Mapping, Sequence, Dict
 
 import torch
 from pydantic import TypeAdapter
@@ -9,6 +9,7 @@ from transformers import AutoConfig, AutoTokenizer, pipeline, set_seed
 
 from gpt_task import models
 from gpt_task.config import Config
+from gpt_task.cache import ModelCache
 
 from .errors import wrap_error
 from .utils import load_model_kwargs, use_deterministic_mode
@@ -39,6 +40,7 @@ def run_task(
     dtype: Literal["float16", "bfloat16", "float32", "auto"] = "auto",
     quantize_bits: Literal[4, 8] | None = None,
     config: Config | None = None,
+    model_cache: ModelCache | None = None,
 ) -> models.GPTTaskResponse:
     if args is None:
         args = models.GPTTaskArgs.model_validate(
@@ -57,51 +59,60 @@ def run_task(
 
     set_seed(args.seed)
 
-    _logger.info("Start loading pipeline")
+    model_args: Dict[str, Any] = {"model": args.model, "dtype": args.dtype}
+    if args.quantize_bits is not None:
+        model_args["quantize_bits"] = quantize_bits
 
-    torch_dtype = None
-    if args.dtype == "float16":
-        torch_dtype = torch.float16
-    elif args.dtype == "float32":
-        torch_dtype = torch.float32
-    elif args.dtype == "bfloat16":
-        torch_dtype = torch.bfloat16
+    if model_cache is not None and model_cache.has(model_args):
+        pipe = model_cache.get(model_args)
+        tokenizer = pipe.tokenizer
+    else:
+        _logger.info("Start loading pipeline")
 
-    model_kwargs = load_model_kwargs(config=config)
-    _logger.debug(f"model kwargs: {model_kwargs}")
+        torch_dtype = None
+        if args.dtype == "float16":
+            torch_dtype = torch.float16
+        elif args.dtype == "float32":
+            torch_dtype = torch.float32
+        elif args.dtype == "bfloat16":
+            torch_dtype = torch.bfloat16
 
-    tokenizer = AutoTokenizer.from_pretrained(
-        args.model, use_fast=False, trust_remote_code=True, **model_kwargs
-    )
-    model_config = AutoConfig.from_pretrained(
-        args.model,
-        _from_pipeline="text-generation",
-        trust_remote_code=True,
-        **model_kwargs,
-    )
+        model_kwargs = load_model_kwargs(config=config)
+        _logger.debug(f"model kwargs: {model_kwargs}")
 
-    if args.quantize_bits == 4:
-        model_kwargs["load_in_4bit"] = True
-    elif args.quantize_bits == 8:
-        model_kwargs["load_in_8bit"] = True
-
-    pipe = pipeline(
-        "text-generation",
-        model=args.model,
-        config=model_config,
-        tokenizer=tokenizer,
-        trust_remote_code=True,
-        use_fast=False,
-        device_map="auto",
-        torch_dtype=torch_dtype,
-        model_kwargs=dict(
-            offload_folder="offload",
-            offload_state_dict=True,
+        tokenizer = AutoTokenizer.from_pretrained(
+            args.model, use_fast=False, trust_remote_code=True, **model_kwargs
+        )
+        model_config = AutoConfig.from_pretrained(
+            args.model,
+            _from_pipeline="text-generation",
+            trust_remote_code=True,
             **model_kwargs,
-        ),
-    )
+        )
 
-    _logger.info("Loading pipeline completes")
+        if args.quantize_bits == 4:
+            model_kwargs["load_in_4bit"] = True
+        elif args.quantize_bits == 8:
+            model_kwargs["load_in_8bit"] = True
+
+        pipe = pipeline(
+            "text-generation",
+            model=args.model,
+            config=model_config,
+            tokenizer=tokenizer,
+            trust_remote_code=True,
+            use_fast=False,
+            device_map="auto",
+            torch_dtype=torch_dtype,
+            model_kwargs=dict(
+                offload_folder="offload",
+                offload_state_dict=True,
+                **model_kwargs,
+            ),
+        )
+        if model_cache is not None:
+            model_cache.set(model_args, pipe)
+        _logger.info("Loading pipeline completes")
 
     _logger.info("Start text generation")
 
