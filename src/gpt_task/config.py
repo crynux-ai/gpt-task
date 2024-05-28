@@ -4,8 +4,11 @@ from typing import Any, Dict, List, Tuple, Type
 import yaml
 from pydantic import BaseModel
 from pydantic.fields import FieldInfo
-from pydantic_settings import (BaseSettings, PydanticBaseSettingsSource,
-                               SettingsConfigDict)
+from pydantic_settings import (
+    BaseSettings,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+)
 
 
 class YamlSettingsConfigDict(SettingsConfigDict):
@@ -62,6 +65,14 @@ class YamlConfigSettingsSource(PydanticBaseSettingsSource):
         return d
 
 
+class ModelConfig(BaseModel):
+    id: str
+
+
+class PreloadedModelsConfig(BaseModel):
+    base: List[ModelConfig] | None
+
+
 class ModelsDirConfig(BaseModel):
     huggingface: str
 
@@ -78,6 +89,7 @@ class ProxyConfig(BaseModel):
 
 
 class Config(BaseSettings):
+    preloaded_models: PreloadedModelsConfig = PreloadedModelsConfig(base=[])
     data_dir: DataDirConfig | None = None
     proxy: ProxyConfig | None = None
 
