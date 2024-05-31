@@ -76,7 +76,7 @@ def download_model(model_name: str, hf_model_cache_dir: str, proxy: ProxyConfig 
         info = model_info(model_name)
         siblings = info.siblings
 
-        ignore_patterns = ["onnx*"]
+        ignore_patterns = ["**/*"]
 
         possible_weight_ext = [
             "*.safetensors*",
