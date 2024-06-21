@@ -1,13 +1,8 @@
-from typing import Protocol, Dict, Any, TypeVar
+from typing import Protocol, Dict, Any, TypeVar, Callable
 
 T = TypeVar("T")
 
+
 class ModelCache(Protocol[T]):
-    def set(self, model_args: Dict[str, Any], model: T):
-        ...
-
-    def get(self, model_args: Dict[str, Any]) -> T:
-        ...
-
-    def has(self, model_args: Dict[str, Any]) -> bool:
+    def load(self, key: str, model_loader: Callable[[], T]) -> T:
         ...

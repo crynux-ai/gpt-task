@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, List, Literal, Mapping, Sequence, Dict
+from typing import Any, List, Literal, Mapping, Sequence
 
 import torch
 from pydantic import TypeAdapter
@@ -13,6 +13,7 @@ from gpt_task.cache import ModelCache
 
 from .errors import wrap_error
 from .utils import load_model_kwargs, use_deterministic_mode
+from .key import generate_model_key
 
 _logger = logging.getLogger(__name__)
 
@@ -59,14 +60,9 @@ def run_task(
 
     set_seed(args.seed)
 
-    model_args: Dict[str, Any] = {"model": args.model, "dtype": args.dtype}
-    if args.quantize_bits is not None:
-        model_args["quantize_bits"] = quantize_bits
+    model_key = generate_model_key(args)
 
-    if model_cache is not None and model_cache.has(model_args):
-        pipe = model_cache.get(model_args)
-        tokenizer = pipe.tokenizer
-    else:
+    def model_loader():
         _logger.info("Start loading pipeline")
 
         torch_dtype = None
@@ -110,9 +106,16 @@ def run_task(
                 **model_kwargs,
             ),
         )
-        if model_cache is not None:
-            model_cache.set(model_args, pipe)
+
         _logger.info("Loading pipeline completes")
+        return pipe
+
+    if model_cache is not None:
+        pipe = model_cache.load(model_key, model_loader)
+    else:
+        pipe = model_loader()
+
+    tokenizer = pipe.tokenizer
 
     _logger.info("Start text generation")
 

@@ -1,28 +1,24 @@
-import hashlib
-import json
-from typing import Any, Dict
+from typing import Any, Dict, Callable
 
-
-def generate_key(model_args: Dict[str, Any]) -> str:
-    model_args_str = json.dumps(
-        model_args, ensure_ascii=False, separators=(",", ":"), sort_keys=True
-    )
-    key = hashlib.md5(model_args_str.encode("utf-8")).hexdigest()
-    return key
+import torch
 
 
 class MemoryModelCache(object):
-    def __init__(self) -> None:
-        self._cache = {}
+    def __init__(self, max_size: int = 1) -> None:
+        self.max_size = max_size
 
-    def set(self, model_args: Dict[str, Any], model: Any):
-        key = generate_key(model_args)
-        self._cache[key] = model
+        self._cache: Dict[str, Any] = {}
 
-    def get(self, model_args: Dict[str, Any]):
-        key = generate_key(model_args)
-        return self._cache[key]
-
-    def has(self, model_args: Dict[str, Any]):
-        key = generate_key(model_args)
-        return key in self._cache
+    def load(self, key: str, model_loader: Callable[[], Any]):
+        if key in self._cache:
+            return self._cache[key]
+        else:
+            if len(self._cache) >= self.max_size:
+                keys = list(self._cache.keys())
+                t = self._cache.pop(keys[0])
+                del t
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            model = model_loader()
+            self._cache[key] = model
+            return model
