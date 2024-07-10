@@ -17,8 +17,6 @@ from .key import generate_model_key
 
 _logger = logging.getLogger(__name__)
 
-use_deterministic_mode()
-
 
 def _find_prompt_tokens(input_tokens: List[int], output_tokens: List[int]) -> int:
     start = output_tokens.index(input_tokens[0])
@@ -57,6 +55,8 @@ def run_task(
 
     _logger.info("Task starts")
     _logger.debug(f"task args: {args}")
+
+    use_deterministic_mode()
 
     set_seed(args.seed)
 
@@ -153,8 +153,12 @@ def run_task(
 
     assert len(res_token_ids) > 0
 
+    del output
+
     input_tokens = tokenizer.encode(inputs, add_special_tokens=False)
     prompt_tokens = _find_prompt_tokens(input_tokens, res_token_ids[0])
+
+    del input_tokens
 
     completion_tokens = 0
     output_texts = []
@@ -196,6 +200,11 @@ def run_task(
         "choices": choices,
         "usage": usage,
     }
+
+    del res_token_ids
+
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
 
     _logger.info("Text generation completes")
     return resp
