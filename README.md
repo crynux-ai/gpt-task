@@ -1,4 +1,4 @@
-## Stable Diffusion Task
+## GPT Task
 
 A general framework to define and execute the llm text generation task.
 
