@@ -1,19 +1,18 @@
 --extra-index-url https://download.pytorch.org/whl/cu118
-torch==2.1.0+cu118
+torch==2.2.0+cu118
 --extra-index-url https://download.pytorch.org/whl/cu118
-torchaudio==2.1.0+cu118
+torchaudio==2.2.0+cu118
 --extra-index-url https://download.pytorch.org/whl/cu118
-torchvision==0.16.0+cu118
+torchvision==0.17.0+cu118
 
 numpy==1.26.2
 scipy==1.11.4
-torch==2.1.0
-transformers==4.35.2
-transformers_stream_generator==0.0.4
-sentencepiece==0.1.99
-accelerate==0.25.0
-bitsandbytes==0.41.3
-tiktoken==0.5.2
-einops==0.7.0
-pydantic==2.5.2
-pydantic-settings==2.1.0
+transformers==4.46.3
+transformers_stream_generator==0.0.5
+sentencepiece==0.2.0
+accelerate==0.33.0
+bitsandbytes==0.44.1
+tiktoken==0.8.0
+einops==0.8.0
+pydantic==2.7.4
+pydantic-settings==2.6.1
