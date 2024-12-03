@@ -14,3 +14,4 @@ tiktoken==0.5.2
 einops==0.7.0
 pydantic==2.5.2
 pydantic-settings==2.1.0
+huggingface_hub==0.24.6
