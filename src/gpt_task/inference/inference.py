@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, List, Literal, Mapping, Sequence
+from typing import Any, Dict, List, Literal, Mapping, Sequence
 
 import torch
 from pydantic import TypeAdapter
@@ -34,6 +34,7 @@ def run_task(
     *,
     model: str | None = None,
     messages: Sequence[models.Message | Mapping[str, Any]] | None = None,
+    tools: Sequence[Dict[str, Any]] | None = None,
     generation_config: models.GPTGenerationConfig | Mapping[str, Any] | None = None,
     seed: int = 0,
     dtype: Literal["float16", "bfloat16", "float32", "auto"] = "auto",
@@ -46,6 +47,7 @@ def run_task(
             {
                 "model": model,
                 "messages": messages,
+                "tools": tools,
                 "generation_config": generation_config,
                 "seed": seed,
                 "dtype": dtype,
@@ -131,12 +133,34 @@ def run_task(
                 generation_config[k] = v
 
     chats = [dict(**m) for m in args.messages]
-    if tokenizer.chat_template is not None:
-        inputs = tokenizer.apply_chat_template(
-            chats, tokenize=False, add_generation_prompt=True
-        )
+
+    # Check if model supports chat templates
+    has_chat_template = hasattr(tokenizer, "chat_template") and tokenizer.chat_template is not None
+    _logger.debug(f"Model has chat template: {has_chat_template}")
+
+    # Warn if tools are requested but model doesn't support them
+    if args.tools and not has_chat_template:
+        _logger.warning("Tools were provided but model does not support chat template. Tool calling will be disabled.")
+        args.tools = None  # Disable tools since they won't work
+
+    if has_chat_template:
+        template_args = {
+            "tokenize": False,
+            "add_generation_prompt": True
+        }
+
+        if args.tools is not None:
+            template_args["tools"] = [dict(**t) for t in args.tools]
+            _logger.debug(f"Adding tools to chat template: {template_args['tools']}")
+
+        inputs = tokenizer.apply_chat_template(chats,**template_args)
+        _logger.debug("Applied chat template for input formatting")
     else:
+        _logger.debug("No chat template available, falling back to basic formatting")
         inputs = "\n".join(c["content"] for c in chats)
+
+    _logger.debug(f"Generation config: {generation_config}")
+    _logger.debug(f"Input text: {inputs}")
 
     output = pipe(
         inputs,
@@ -145,6 +169,8 @@ def run_task(
     )
     assert output is not None
     assert isinstance(output, list)
+
+    _logger.debug(f"Raw output: {output}")
 
     res_token_ids = []
     for single in output:
@@ -163,6 +189,7 @@ def run_task(
     completion_tokens = 0
     output_texts = []
     finish_reasons = []
+
     for token_ids in res_token_ids:
         # when the last token is eos token, finish reason is stop, otherwise is length
         if token_ids[-1] == tokenizer.eos_token_id:

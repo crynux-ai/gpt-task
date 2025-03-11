@@ -1,4 +1,4 @@
-from typing import List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, TypedDict
 
 from pydantic import BaseModel
 from typing_extensions import TypedDict
@@ -6,9 +6,14 @@ from typing_extensions import TypedDict
 from .utils import NonEmptyString
 
 
-class Message(TypedDict):
-    role: Literal["system", "user", "assistant"]
-    content: str
+class Message(TypedDict, total=False):
+    # Required fields
+    role: Literal["system", "user", "assistant", "tool"]
+
+    # Optional fields
+    content: Optional[str]
+    tool_call_id: Optional[str]
+    tool_calls: Optional[List[Dict[str, Any]]]
 
 
 class GPTGenerationConfig(TypedDict, total=False):
@@ -29,6 +34,7 @@ class GPTGenerationConfig(TypedDict, total=False):
 class GPTTaskArgs(BaseModel):
     model: NonEmptyString
     messages: List[Message]
+    tools: Optional[List[Dict[str, Any]]] = None
     generation_config: Optional[GPTGenerationConfig] = None
 
     seed: int = 0
