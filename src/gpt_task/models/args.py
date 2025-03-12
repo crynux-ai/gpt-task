@@ -1,10 +1,9 @@
-from typing import Any, Dict, List, Literal, Optional, TypedDict
+from typing import Any, Dict, List, Literal, Optional, TypedDict, Generator
 
 from pydantic import BaseModel
 from typing_extensions import TypedDict
 
 from .utils import NonEmptyString
-
 
 class Message(TypedDict, total=False):
     # Required fields
@@ -14,7 +13,6 @@ class Message(TypedDict, total=False):
     content: Optional[str]
     tool_call_id: Optional[str]
     tool_calls: Optional[List[Dict[str, Any]]]
-
 
 class GPTGenerationConfig(TypedDict, total=False):
     max_new_tokens: int
@@ -30,22 +28,33 @@ class GPTGenerationConfig(TypedDict, total=False):
 
     num_return_sequences: int
 
+class Usage(TypedDict):
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+
+class StreamChoice(TypedDict):
+    index: int
+    delta: Message
+    finish_reason: Optional[Literal["stop", "length"]]
+
+class StreamResponse(TypedDict):
+    model: NonEmptyString
+    choices: List[StreamChoice]
+    usage: Usage
+
+GPTTaskStreamResponse = Generator[StreamResponse, None, None]
 
 class GPTTaskArgs(BaseModel):
     model: NonEmptyString
     messages: List[Message]
     tools: Optional[List[Dict[str, Any]]] = None
     generation_config: Optional[GPTGenerationConfig] = None
+    stream: bool = False
 
     seed: int = 0
     dtype: Literal["float16", "bfloat16", "float32", "auto"] = "auto"
     quantize_bits: Optional[Literal[4, 8]] = None
-
-
-class Usage(TypedDict):
-    prompt_tokens: int
-    completion_tokens: int
-    total_tokens: int
 
 
 class ResponseChoice(TypedDict):
