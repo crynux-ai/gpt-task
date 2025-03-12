@@ -6,6 +6,9 @@ from typing import List, Dict, Any, Optional
 from gpt_task.inference import run_task
 from gpt_task.cache.memory_impl import MemoryModelCache
 
+import dotenv
+dotenv.load_dotenv()
+
 logging.basicConfig(
     format="[{asctime}] [{levelname:<8}] {name}: {message}",
     datefmt="%Y-%m-%d %H:%M:%S",

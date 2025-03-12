@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Literal, Mapping, Sequence
+from typing import Any, Dict, List, Literal, Mapping, Sequence, Union, Generator
 
 import torch
 from pydantic import TypeAdapter
 from transformers import AutoConfig, AutoTokenizer, pipeline, set_seed
+from transformers.generation.streamers import BaseStreamer
 
 from gpt_task import models
 from gpt_task.config import Config
@@ -16,6 +17,61 @@ from .utils import load_model_kwargs, use_deterministic_mode
 from .key import generate_model_key
 
 _logger = logging.getLogger(__name__)
+
+
+class TokenStreamer(BaseStreamer):
+    """Streamer that yields tokens as they are generated."""
+
+    def __init__(self, tokenizer, input_tokens: List[int]):
+        self.tokenizer = tokenizer
+        self.prompt_tokens = len(input_tokens)  # Store the number of input tokens
+        self.tokens = []
+        self.is_eos = False
+        self.completion_tokens = 0
+        self.is_done = False
+        self.text_queue = []
+        self.current_text = ""
+
+    def put(self, value):
+        if len(value.shape) > 1:
+            value = value[0]
+
+        # Process each token immediately
+        for token in value.tolist():
+            if token == self.tokenizer.eos_token_id:
+                self.is_eos = True
+                break
+
+            self.tokens.append(token)
+            self.completion_tokens += 1
+
+            # Decode the new token
+            new_text = self.tokenizer.decode(
+                [token],
+                skip_special_tokens=True,
+                clean_up_tokenization_spaces=True
+            )
+            if new_text:
+                self.text_queue.append(new_text)
+                self.current_text += new_text
+
+    def end(self):
+        self.is_done = True
+
+    def get_text(self) -> str:
+        if not self.text_queue:
+            return ""
+        return self.text_queue.pop(0)
+
+    def get_finish_reason(self) -> Literal["stop", "length"]:
+        return "stop" if self.is_eos else "length"
+
+    def get_usage(self) -> models.Usage:
+        return {
+            "prompt_tokens": self.prompt_tokens,
+            "completion_tokens": self.completion_tokens,
+            "total_tokens": self.prompt_tokens + self.completion_tokens
+        }
 
 
 def _find_prompt_tokens(input_tokens: List[int], output_tokens: List[int]) -> int:
@@ -36,12 +92,13 @@ def run_task(
     messages: Sequence[models.Message | Mapping[str, Any]] | None = None,
     tools: Sequence[Dict[str, Any]] | None = None,
     generation_config: models.GPTGenerationConfig | Mapping[str, Any] | None = None,
+    stream: bool = False,
     seed: int = 0,
     dtype: Literal["float16", "bfloat16", "float32", "auto"] = "auto",
     quantize_bits: Literal[4, 8] | None = None,
     config: Config | None = None,
     model_cache: ModelCache | None = None,
-) -> models.GPTTaskResponse:
+) -> Union[models.GPTTaskResponse, models.GPTTaskStreamResponse]:
     if args is None:
         args = models.GPTTaskArgs.model_validate(
             {
@@ -49,6 +106,7 @@ def run_task(
                 "messages": messages,
                 "tools": tools,
                 "generation_config": generation_config,
+                "stream": stream,
                 "seed": seed,
                 "dtype": dtype,
                 "quantize_bits": quantize_bits,
@@ -162,6 +220,55 @@ def run_task(
     _logger.debug(f"Generation config: {generation_config}")
     _logger.debug(f"Input text: {inputs}")
 
+    input_tokens = tokenizer.encode(inputs, add_special_tokens=False)
+
+    if args.stream:
+        streamer = TokenStreamer(tokenizer, input_tokens)  # Pass both tokenizer and input tokens
+        generation_config["streamer"] = streamer
+        generation_config["return_full_text"] = False  # Only return generated text
+        generation_config["pad_token_id"] = tokenizer.eos_token_id
+        generation_config["use_cache"] = True
+
+        def stream_generator() -> Generator[models.StreamResponse, None, None]:
+            # Set up streaming generation
+            pipe(
+                inputs,
+                **generation_config,
+            )
+
+            # Keep getting text until we're done and no more text in queue
+            while not streamer.is_done or streamer.text_queue:
+                new_text = streamer.get_text()
+                if new_text:
+                    yield {
+                        "model": args.model,
+                        "choices": [{
+                            "index": 0,
+                            "delta": {"role": "assistant", "content": new_text},
+                            "finish_reason": None
+                        }],
+                        "usage": streamer.get_usage()
+                    }
+
+            # Send final chunk with finish_reason
+            finish_reason = streamer.get_finish_reason()
+            yield {
+                "model": args.model,
+                "choices": [{
+                    "index": 0,
+                    "delta": {"role": "assistant", "content": ""},
+                    "finish_reason": finish_reason
+                }],
+                "usage": streamer.get_usage()
+            }
+
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+            _logger.info("Text generation completes")
+
+        return stream_generator()
+
     output = pipe(
         inputs,
         return_tensors=True,
@@ -181,7 +288,6 @@ def run_task(
 
     del output
 
-    input_tokens = tokenizer.encode(inputs, add_special_tokens=False)
     prompt_tokens = _find_prompt_tokens(input_tokens, res_token_ids[0])
 
     del input_tokens

@@ -1,5 +1,5 @@
 from .args import (GPTGenerationConfig, GPTTaskArgs, GPTTaskResponse, Message,
-                   ResponseChoice, Usage)
+                   ResponseChoice, Usage, GPTTaskStreamResponse)
 
 __all__ = [
     "GPTGenerationConfig",
@@ -8,4 +8,5 @@ __all__ = [
     "Usage",
     "ResponseChoice",
     "GPTTaskResponse",
+    "GPTTaskStreamResponse",
 ]
