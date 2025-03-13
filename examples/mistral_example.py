@@ -40,6 +40,7 @@ try:
     # Get the generated content
     content = response["choices"][0]["message"]["content"]
     finish_reason = response["choices"][0]["finish_reason"]
+    usage = response["usage"]
 
     # Print the generated content
     print(content)
@@ -50,5 +51,7 @@ try:
 except Exception as e:
     _logger.exception("Error during generation")
     raise
+
+print(f"Usage: {usage}")
 
 print("\nGeneration complete!", flush=True)

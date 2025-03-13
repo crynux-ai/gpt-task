@@ -31,6 +31,8 @@ class TokenStreamer(BaseStreamer):
         self.is_done = False
         self.text_queue = []
         self.found_prompt_end = False  # Flag to track if we've found the end of the prompt
+        self.first_token = True  # Flag to track if this is the first token being returned
+        self.prompt_tokens = len(input_tokens)  # Initialize with input length, will be updated when prompt end is found
 
     def put(self, value):
         if len(value.shape) > 1:
@@ -50,6 +52,7 @@ class TokenStreamer(BaseStreamer):
                     prompt_end = _find_prompt_tokens(self.input_tokens, self.tokens)
                     if prompt_end > 0:
                         self.found_prompt_end = True
+                        self.prompt_tokens = prompt_end  # Update prompt tokens count to match non-streaming mode
                         self.tokens = self.tokens[prompt_end:]  # Keep only the new tokens
                 continue
 
@@ -72,7 +75,11 @@ class TokenStreamer(BaseStreamer):
             return ""
         # Return text if we've found prompt end OR if generation is complete
         if self.found_prompt_end or self.is_done:
-            return self.text_queue.pop(0)
+            text = self.text_queue.pop(0)
+            if self.first_token:
+                text = text.lstrip()
+                self.first_token = False
+            return text
         return ""
 
     def get_finish_reason(self) -> Literal["stop", "length"]:
@@ -80,9 +87,9 @@ class TokenStreamer(BaseStreamer):
 
     def get_usage(self) -> models.Usage:
         return {
-            "prompt_tokens": len(self.input_tokens),
+            "prompt_tokens": self.prompt_tokens,
             "completion_tokens": self.completion_tokens,
-            "total_tokens": len(self.input_tokens) + self.completion_tokens
+            "total_tokens": self.prompt_tokens + self.completion_tokens
         }
 
 

@@ -23,6 +23,7 @@ messages = [
 print("Starting generation...", flush=True)
 
 # Enable streaming output
+usage = None
 try:
     for chunk in run_task(
         model="mistralai/Mistral-7B-Instruct-v0.1",
@@ -39,6 +40,7 @@ try:
     ):
         content = chunk["choices"][0]["delta"].get("content", "")
         finish_reason = chunk["choices"][0].get("finish_reason")
+        chunk_usage = chunk["usage"]
 
         _logger.debug(f"Received chunk: {chunk}")
 
@@ -51,10 +53,15 @@ try:
             sys.stdout.flush()
             _logger.debug(f"Generation finished with reason: {finish_reason}")
 
+        if chunk_usage:
+            usage = chunk_usage
+
         time.sleep(0.1)
 
 except Exception as e:
     _logger.exception("Error during generation")
     raise
+
+print(f"Usage: {usage}")
 
 print("\nGeneration complete!", flush=True)
