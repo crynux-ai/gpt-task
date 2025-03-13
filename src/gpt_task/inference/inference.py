@@ -38,6 +38,8 @@ class TokenStreamer(BaseStreamer):
         if len(value.shape) > 1:
             value = value[0]
 
+        _logger.debug(f"TokenStreamer put: {value}")
+
         # Process each token immediately
         for token in value.tolist():
             if token == self.tokenizer.eos_token_id:
@@ -68,9 +70,11 @@ class TokenStreamer(BaseStreamer):
                 self.text_queue.append(new_text)
 
     def end(self):
+        _logger.debug(f"TokenStreamer end")
         self.is_done = True
 
     def get_text(self) -> str:
+        _logger.debug(f"TokenStreamer get_text")
         if not self.text_queue:
             return ""
         # Return text if we've found prompt end OR if generation is complete
@@ -243,20 +247,25 @@ def run_task(
     if args.stream:
         streamer = TokenStreamer(tokenizer, input_tokens)  # Pass both tokenizer and input tokens
         generation_config["streamer"] = streamer
-        generation_config["return_full_text"] = False  # Only return generated text
         generation_config["pad_token_id"] = tokenizer.eos_token_id
         generation_config["use_cache"] = True
 
         def stream_generator() -> Generator[models.StreamResponse, None, None]:
             # Set up streaming generation
+            _logger.debug("Starting streaming generation")
             pipe(
                 inputs,
                 **generation_config,
             )
+            _logger.debug("Generation initiated, starting to yield chunks")
+
+            _logger.debug(f"Streamer: is_done={streamer.is_done}, text_queue={streamer.text_queue}")
 
             # Keep getting text until we're done and no more text in queue
             while not streamer.is_done or streamer.text_queue:
+                _logger.debug(f"Stream loop: is_done={streamer.is_done}, queue_size={len(streamer.text_queue)}")
                 new_text = streamer.get_text()
+                _logger.debug(f"Got new text: '{new_text}'")
                 if new_text:
                     yield {
                         "model": args.model,
@@ -268,8 +277,12 @@ def run_task(
                         "usage": streamer.get_usage()
                     }
 
+                    _logger.debug("Yielded chunk")
+                    _logger.debug(f"Streamer: is_done={streamer.is_done}, text_queue={streamer.text_queue}")
+
             # Send final chunk with finish_reason
             finish_reason = streamer.get_finish_reason()
+            _logger.debug(f"Sending final chunk with finish_reason={finish_reason}")
             yield {
                 "model": args.model,
                 "choices": [{
