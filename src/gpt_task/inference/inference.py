@@ -24,13 +24,13 @@ class TokenStreamer(BaseStreamer):
 
     def __init__(self, tokenizer, input_tokens: List[int]):
         self.tokenizer = tokenizer
-        self.prompt_tokens = len(input_tokens)  # Store the number of input tokens
+        self.input_tokens = input_tokens  # Store the actual input tokens
         self.tokens = []
         self.is_eos = False
         self.completion_tokens = 0
         self.is_done = False
         self.text_queue = []
-        self.current_text = ""
+        self.found_prompt_end = False  # Flag to track if we've found the end of the prompt
 
     def put(self, value):
         if len(value.shape) > 1:
@@ -43,6 +43,16 @@ class TokenStreamer(BaseStreamer):
                 break
 
             self.tokens.append(token)
+
+            if not self.found_prompt_end:
+                if len(self.tokens) >= len(self.input_tokens):
+                    # Try to find the end of the input sequence
+                    prompt_end = _find_prompt_tokens(self.input_tokens, self.tokens)
+                    if prompt_end > 0:
+                        self.found_prompt_end = True
+                        self.tokens = self.tokens[prompt_end:]  # Keep only the new tokens
+                continue
+
             self.completion_tokens += 1
 
             # Decode the new token
@@ -53,7 +63,6 @@ class TokenStreamer(BaseStreamer):
             )
             if new_text:
                 self.text_queue.append(new_text)
-                self.current_text += new_text
 
     def end(self):
         self.is_done = True
@@ -61,27 +70,29 @@ class TokenStreamer(BaseStreamer):
     def get_text(self) -> str:
         if not self.text_queue:
             return ""
-        return self.text_queue.pop(0)
+        # Return text if we've found prompt end OR if generation is complete
+        if self.found_prompt_end or self.is_done:
+            return self.text_queue.pop(0)
+        return ""
 
     def get_finish_reason(self) -> Literal["stop", "length"]:
         return "stop" if self.is_eos else "length"
 
     def get_usage(self) -> models.Usage:
         return {
-            "prompt_tokens": self.prompt_tokens,
+            "prompt_tokens": len(self.input_tokens),
             "completion_tokens": self.completion_tokens,
-            "total_tokens": self.prompt_tokens + self.completion_tokens
+            "total_tokens": len(self.input_tokens) + self.completion_tokens
         }
 
 
 def _find_prompt_tokens(input_tokens: List[int], output_tokens: List[int]) -> int:
-    start = output_tokens.index(input_tokens[0])
-    if start == -1:
+    try:
+        start = output_tokens.index(input_tokens[0])
+        end = output_tokens.index(input_tokens[-1], start + len(input_tokens) - 1)
+        return end + 1
+    except ValueError:
         return 0
-    end = output_tokens.index(input_tokens[-1], start + len(input_tokens) - 1)
-    if end == -1:
-        return 0
-    return end + 1
 
 
 @wrap_error
@@ -310,7 +321,8 @@ def run_task(
             token_ids[prompt_tokens:],
             skip_special_tokens=True,
             clean_up_tokenization_spaces=True,
-        )
+        ).strip()
+
         output_texts.append(text)
 
     usage: models.Usage = {
