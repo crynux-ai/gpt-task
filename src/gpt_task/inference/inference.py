@@ -38,16 +38,12 @@ class TokenStreamer(BaseStreamer):
         if len(value.shape) > 1:
             value = value[0]
 
-        _logger.debug(f"TokenStreamer put: {value}")
+        token_list = value.tolist()
 
-        # Process each token immediately
-        for token in value.tolist():
-            if token == self.tokenizer.eos_token_id:
-                self.is_eos = True
-                break
-
+        for token in token_list:
             self.tokens.append(token)
 
+            # Always check for prompt end first
             if not self.found_prompt_end:
                 if len(self.tokens) >= len(self.input_tokens):
                     # Try to find the end of the input sequence
@@ -56,25 +52,48 @@ class TokenStreamer(BaseStreamer):
                         self.found_prompt_end = True
                         self.prompt_tokens = prompt_end  # Update prompt tokens count to match non-streaming mode
                         self.tokens = self.tokens[prompt_end:]  # Keep only the new tokens
-                continue
+                        _logger.debug(f"Found prompt end at position {prompt_end}")
 
-            self.completion_tokens += 1
+                        # Check if we've already collected any completion tokens
+                        for completion_token in self.tokens:
+                            self.completion_tokens += 1
+                            # Process each completion token (decode, etc.)
+                            new_text = self.tokenizer.decode(
+                                [completion_token],
+                                skip_special_tokens=True,
+                                clean_up_tokenization_spaces=True
+                            )
+                            if new_text:
+                                self.text_queue.append(new_text)
 
-            # Decode the new token
-            new_text = self.tokenizer.decode(
-                [token],
-                skip_special_tokens=True,
-                clean_up_tokenization_spaces=True
-            )
-            if new_text:
-                self.text_queue.append(new_text)
+                            # Check for EOS in completion tokens
+                            if completion_token == self.tokenizer.eos_token_id:
+                                self.is_eos = True
+                                break
+                        continue
+
+            # For tokens after prompt identification
+            if self.found_prompt_end:
+                # Check for EOS after we've found the prompt
+                if token == self.tokenizer.eos_token_id:
+                    self.is_eos = True
+                    break
+
+                self.completion_tokens += 1
+
+                # Decode the new token
+                new_text = self.tokenizer.decode(
+                    [token],
+                    skip_special_tokens=True,
+                    clean_up_tokenization_spaces=True
+                )
+                if new_text:
+                    self.text_queue.append(new_text)
 
     def end(self):
-        _logger.debug(f"TokenStreamer end")
         self.is_done = True
 
     def get_text(self) -> str:
-        _logger.debug(f"TokenStreamer get_text")
         if not self.text_queue:
             return ""
         # Return text if we've found prompt end OR if generation is complete
@@ -98,11 +117,18 @@ class TokenStreamer(BaseStreamer):
 
 
 def _find_prompt_tokens(input_tokens: List[int], output_tokens: List[int]) -> int:
+
+    _logger.debug(f"Finding prompt tokens: input_tokens={input_tokens}")
+    _logger.debug(f"Finding prompt tokens: output_tokens={output_tokens}")
+
     try:
         start = output_tokens.index(input_tokens[0])
+        _logger.debug(f"Finding prompt tokens: start={start}")
         end = output_tokens.index(input_tokens[-1], start + len(input_tokens) - 1)
+        _logger.debug(f"Finding prompt tokens: end={end}")
         return end + 1
     except ValueError:
+        _logger.debug(f"Finding prompt tokens: ValueError")
         return 0
 
 

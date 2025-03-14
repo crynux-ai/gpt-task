@@ -15,7 +15,7 @@ logging.basicConfig(
     format="[{asctime}] [{levelname:<8}] {name}: {message}",
     datefmt="%Y-%m-%d %H:%M:%S",
     style="{",
-    level=logging.DEBUG,
+    level=logging.INFO,
 )
 
 _logger = logging.getLogger(__name__)
@@ -89,7 +89,15 @@ def process_conversation_streaming(messages: List[Dict[str, str]], tools: List[D
     model_cache = MemoryModelCache()
 
     accumulated_content = ""
-    usage = None
+
+    # Initialize total usage at the beginning of your function
+    total_usage = {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0
+    }
+
+    current_session_usage = None
 
     try:
         for chunk in run_task(
@@ -124,21 +132,25 @@ def process_conversation_streaming(messages: List[Dict[str, str]], tools: List[D
 
                 # Update usage information if present in the chunk
                 if chunk.get('usage'):
-                    usage = chunk['usage']
+                    current_session_usage = chunk['usage']
 
                 # Add a small delay for visible streaming effect
                 time.sleep(0.05)
+
+        total_usage["prompt_tokens"] += current_session_usage.get("prompt_tokens", 0)
+        total_usage["completion_tokens"] += current_session_usage.get("completion_tokens", 0)
+        total_usage["total_tokens"] += current_session_usage.get("total_tokens", 0)
+
+         # Add the assistant's message without tool calls
+        clean_content = re.sub(r'<tool_call>\s*(?:{[\s\S]*?})\s*</tool_call>', '', accumulated_content).strip()
+        if clean_content:
+            conversation_history.append({"role": "assistant", "content": clean_content})
 
         # After streaming is complete, process any tool calls
         tool_calls = extract_tool_calls(accumulated_content)
 
         if tool_calls:
             print("\nExecuting tool calls...")
-
-            # Add the assistant's message without tool calls
-            clean_content = re.sub(r'<tool_call>\s*(?:{[\s\S]*?})\s*</tool_call>', '', accumulated_content).strip()
-            if clean_content:
-                conversation_history.append({"role": "assistant", "content": clean_content})
 
             # Process each tool call
             for tool_call in tool_calls:
@@ -148,7 +160,7 @@ def process_conversation_streaming(messages: List[Dict[str, str]], tools: List[D
                 # Add the tool call to conversation history
                 conversation_history.append({
                     "role": "assistant",
-                    "content": None,
+                    "content": "",
                     "tool_calls": [tool_call]
                 })
 
@@ -162,11 +174,48 @@ def process_conversation_streaming(messages: List[Dict[str, str]], tools: List[D
                     "tool_call_id": tool_call.get("id"),
                     "content": result_str
                 })
-        else:
-            # If no tool calls, just add the assistant's message
-            conversation_history.append({"role": "assistant", "content": accumulated_content})
 
-        return conversation_history, usage
+            print("\nGenerating final response with tool results...")
+
+            final_content = ""
+
+            for chunk in run_task(
+                model="NousResearch/Hermes-2-Pro-Llama-3-8B",
+                messages=conversation_history,
+                stream=True,
+                generation_config={
+                    "repetition_penalty": 1.1,
+                    "do_sample": True,
+                    "temperature": 0.7,
+                },
+                seed=42424422,
+                dtype="float16",
+                model_cache=model_cache
+            ):
+                # Extract and process the chunk content
+                if "choices" in chunk and chunk["choices"]:
+                    choice = chunk["choices"][0]
+                    if "delta" in choice and "content" in choice["delta"]:
+                        content = choice["delta"]["content"]
+                        print(content, end="", flush=True)
+                        final_content += content
+
+                # Store the latest usage information
+                if chunk.get('usage'):
+                    current_session_usage = chunk['usage']
+                time.sleep(0.05)
+
+            total_usage["prompt_tokens"] += current_session_usage.get("prompt_tokens", 0)
+            total_usage["completion_tokens"] += current_session_usage.get("completion_tokens", 0)
+            total_usage["total_tokens"] += current_session_usage.get("total_tokens", 0)
+
+            # Add final response to conversation history
+            conversation_history.append({
+                "role": "assistant",
+                "content": final_content
+            })
+
+        return conversation_history, total_usage
 
     except Exception as e:
         _logger.exception("Error during streaming generation")
