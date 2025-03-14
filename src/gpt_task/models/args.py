@@ -38,19 +38,16 @@ class StreamChoice(TypedDict):
     delta: Message
     finish_reason: Optional[Literal["stop", "length"]]
 
-class StreamResponse(TypedDict):
+class GPTTaskStreamResponse(TypedDict):
     model: NonEmptyString
     choices: List[StreamChoice]
     usage: Usage
-
-GPTTaskStreamResponse = Generator[StreamResponse, None, None]
 
 class GPTTaskArgs(BaseModel):
     model: NonEmptyString
     messages: List[Message]
     tools: Optional[List[Dict[str, Any]]] = None
     generation_config: Optional[GPTGenerationConfig] = None
-    stream: bool = False
 
     seed: int = 0
     dtype: Literal["float16", "bfloat16", "float32", "auto"] = "auto"
