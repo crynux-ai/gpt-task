@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Literal, Mapping, Sequence, Union, Generator
+from typing import Any, Dict, List, Literal, Mapping, Sequence, Union, Callable
 
 import torch
 from pydantic import TypeAdapter
@@ -22,7 +22,7 @@ _logger = logging.getLogger(__name__)
 class TokenStreamer(BaseStreamer):
     """Streamer that yields tokens as they are generated."""
 
-    def __init__(self, tokenizer, input_tokens: List[int]):
+    def __init__(self, tokenizer, input_tokens: List[int], model_name: str, stream_callback=None):
         self.tokenizer = tokenizer
         self.input_tokens = input_tokens  # Store the actual input tokens
         self.tokens = []
@@ -33,6 +33,8 @@ class TokenStreamer(BaseStreamer):
         self.found_prompt_end = False  # Flag to track if we've found the end of the prompt
         self.first_token = True  # Flag to track if this is the first token being returned
         self.prompt_tokens = len(input_tokens)  # Initialize with input length, will be updated when prompt end is found
+        self.model_name = model_name
+        self.stream_callback = stream_callback  # Callback to send stream responses
 
     def put(self, value):
         if len(value.shape) > 1:
@@ -63,8 +65,11 @@ class TokenStreamer(BaseStreamer):
                                 skip_special_tokens=True,
                                 clean_up_tokenization_spaces=True
                             )
-                            if new_text:
-                                self.text_queue.append(new_text)
+                            if new_text and self.stream_callback:
+                                if self.first_token:
+                                    new_text = new_text.lstrip()
+                                    self.first_token = False
+                                self._send_token(new_text)
 
                             # Check for EOS in completion tokens
                             if completion_token == self.tokenizer.eos_token_id:
@@ -87,23 +92,43 @@ class TokenStreamer(BaseStreamer):
                     skip_special_tokens=True,
                     clean_up_tokenization_spaces=True
                 )
-                if new_text:
-                    self.text_queue.append(new_text)
+                if new_text and self.stream_callback:
+                    if self.first_token:
+                        new_text = new_text.lstrip()
+                        self.first_token = False
+                    self._send_token(new_text)
+
+    def _send_token(self, text):
+        """Send a token through the callback."""
+        if self.stream_callback:
+            response = {
+                "model": self.model_name,
+                "choices": [{
+                    "index": 0,
+                    "delta": {"role": "assistant", "content": text},
+                    "finish_reason": None
+                }],
+                "usage": self.get_usage()
+            }
+            self.stream_callback(response)
 
     def end(self):
+        """Called when generation is complete."""
         self.is_done = True
-
-    def get_text(self) -> str:
-        if not self.text_queue:
-            return ""
-        # Return text if we've found prompt end OR if generation is complete
-        if self.found_prompt_end or self.is_done:
-            text = self.text_queue.pop(0)
-            if self.first_token:
-                text = text.lstrip()
-                self.first_token = False
-            return text
-        return ""
+        # Send final chunk with finish_reason
+        if self.stream_callback:
+            finish_reason = self.get_finish_reason()
+            _logger.debug(f"Sending final chunk with finish_reason={finish_reason}")
+            response = {
+                "model": self.model_name,
+                "choices": [{
+                    "index": 0,
+                    "delta": {"role": "assistant", "content": ""},
+                    "finish_reason": finish_reason
+                }],
+                "usage": self.get_usage()
+            }
+            self.stream_callback(response)
 
     def get_finish_reason(self) -> Literal["stop", "length"]:
         return "stop" if self.is_eos else "length"
@@ -140,7 +165,7 @@ def run_task(
     messages: Sequence[models.Message | Mapping[str, Any]] | None = None,
     tools: Sequence[Dict[str, Any]] | None = None,
     generation_config: models.GPTGenerationConfig | Mapping[str, Any] | None = None,
-    stream: bool = False,
+    stream_callback: Callable[[models.GPTTaskStreamResponse], None] | None = None,
     seed: int = 0,
     dtype: Literal["float16", "bfloat16", "float32", "auto"] = "auto",
     quantize_bits: Literal[4, 8] | None = None,
@@ -154,7 +179,6 @@ def run_task(
                 "messages": messages,
                 "tools": tools,
                 "generation_config": generation_config,
-                "stream": stream,
                 "seed": seed,
                 "dtype": dtype,
                 "quantize_bits": quantize_bits,
@@ -270,61 +294,24 @@ def run_task(
 
     input_tokens = tokenizer.encode(inputs, add_special_tokens=False)
 
-    if args.stream:
-        streamer = TokenStreamer(tokenizer, input_tokens)  # Pass both tokenizer and input tokens
+    if stream_callback is not None:
+        # Create a callback-based streamer
+        streamer = TokenStreamer(tokenizer, input_tokens, args.model, stream_callback)
         generation_config["streamer"] = streamer
         generation_config["pad_token_id"] = tokenizer.eos_token_id
         generation_config["use_cache"] = True
 
-        def stream_generator() -> Generator[models.StreamResponse, None, None]:
-            # Set up streaming generation
-            _logger.debug("Starting streaming generation")
-            pipe(
-                inputs,
-                **generation_config,
-            )
-            _logger.debug("Generation initiated, starting to yield chunks")
+        # Run the pipe function directly - it will call the streamer's put method
+        # which will in turn call the stream_callback for each token
+        pipe(inputs, **generation_config)
 
-            _logger.debug(f"Streamer: is_done={streamer.is_done}, text_queue={streamer.text_queue}")
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
-            # Keep getting text until we're done and no more text in queue
-            while not streamer.is_done or streamer.text_queue:
-                _logger.debug(f"Stream loop: is_done={streamer.is_done}, queue_size={len(streamer.text_queue)}")
-                new_text = streamer.get_text()
-                _logger.debug(f"Got new text: '{new_text}'")
-                if new_text:
-                    yield {
-                        "model": args.model,
-                        "choices": [{
-                            "index": 0,
-                            "delta": {"role": "assistant", "content": new_text},
-                            "finish_reason": None
-                        }],
-                        "usage": streamer.get_usage()
-                    }
+        _logger.info("Text generation completes")
 
-                    _logger.debug("Yielded chunk")
-                    _logger.debug(f"Streamer: is_done={streamer.is_done}, text_queue={streamer.text_queue}")
-
-            # Send final chunk with finish_reason
-            finish_reason = streamer.get_finish_reason()
-            _logger.debug(f"Sending final chunk with finish_reason={finish_reason}")
-            yield {
-                "model": args.model,
-                "choices": [{
-                    "index": 0,
-                    "delta": {"role": "assistant", "content": ""},
-                    "finish_reason": finish_reason
-                }],
-                "usage": streamer.get_usage()
-            }
-
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-
-            _logger.info("Text generation completes")
-
-        return stream_generator()
+        # Return None since we're using callbacks instead of returning a generator
+        return None
 
     output = pipe(
         inputs,

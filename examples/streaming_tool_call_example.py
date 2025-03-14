@@ -2,12 +2,11 @@ import logging
 import json
 import re
 import sys
-import time
 from typing import List, Dict, Any, Optional
 
 from gpt_task.inference import run_task
 from gpt_task.cache.memory_impl import MemoryModelCache
-
+from gpt_task.models import GPTTaskStreamResponse
 import dotenv
 dotenv.load_dotenv()
 
@@ -88,8 +87,6 @@ def process_conversation_streaming(messages: List[Dict[str, str]], tools: List[D
     conversation_history = messages.copy()
     model_cache = MemoryModelCache()
 
-    accumulated_content = ""
-
     # Initialize total usage at the beginning of your function
     total_usage = {
         "prompt_tokens": 0,
@@ -98,13 +95,38 @@ def process_conversation_streaming(messages: List[Dict[str, str]], tools: List[D
     }
 
     current_session_usage = None
+    accumulated_content = ""
+
+    def stream_callback(chunk: GPTTaskStreamResponse):
+        nonlocal accumulated_content
+        nonlocal current_session_usage
+
+        if 'choices' in chunk and len(chunk['choices']) > 0:
+            delta = chunk['choices'][0].get('delta', {})
+
+            # Handle different types of delta content
+            if 'content' in delta:
+                content = delta['content']
+                if content:
+                    sys.stdout.write(content)
+                    sys.stdout.flush()
+                    accumulated_content += content
+
+            finish_reason = chunk['choices'][0].get('finish_reason')
+            if finish_reason:
+                sys.stdout.write('\n')
+                sys.stdout.flush()
+
+            # Update usage information if present in the chunk
+            if chunk.get('usage'):
+                current_session_usage = chunk['usage']
 
     try:
-        for chunk in run_task(
+        run_task(
             model="NousResearch/Hermes-2-Pro-Llama-3-8B",
             messages=conversation_history,
             tools=tools,
-            stream=True,
+            stream_callback=stream_callback,
             generation_config={
                 "repetition_penalty": 1.1,
                 "do_sample": True,
@@ -113,29 +135,7 @@ def process_conversation_streaming(messages: List[Dict[str, str]], tools: List[D
             seed=42424422,
             dtype="float16",
             model_cache=model_cache
-        ):
-            if 'choices' in chunk and len(chunk['choices']) > 0:
-                delta = chunk['choices'][0].get('delta', {})
-
-                # Handle different types of delta content
-                if 'content' in delta:
-                    content = delta['content']
-                    if content:
-                        sys.stdout.write(content)
-                        sys.stdout.flush()
-                        accumulated_content += content
-
-                finish_reason = chunk['choices'][0].get('finish_reason')
-                if finish_reason:
-                    sys.stdout.write('\n')
-                    sys.stdout.flush()
-
-                # Update usage information if present in the chunk
-                if chunk.get('usage'):
-                    current_session_usage = chunk['usage']
-
-                # Add a small delay for visible streaming effect
-                time.sleep(0.05)
+        )
 
         total_usage["prompt_tokens"] += current_session_usage.get("prompt_tokens", 0)
         total_usage["completion_tokens"] += current_session_usage.get("completion_tokens", 0)
@@ -177,12 +177,13 @@ def process_conversation_streaming(messages: List[Dict[str, str]], tools: List[D
 
             print("\nGenerating final response with tool results...")
 
-            final_content = ""
+            accumulated_content = ""
+            current_session_usage = None
 
-            for chunk in run_task(
+            run_task(
                 model="NousResearch/Hermes-2-Pro-Llama-3-8B",
                 messages=conversation_history,
-                stream=True,
+                stream_callback=stream_callback,
                 generation_config={
                     "repetition_penalty": 1.1,
                     "do_sample": True,
@@ -191,19 +192,7 @@ def process_conversation_streaming(messages: List[Dict[str, str]], tools: List[D
                 seed=42424422,
                 dtype="float16",
                 model_cache=model_cache
-            ):
-                # Extract and process the chunk content
-                if "choices" in chunk and chunk["choices"]:
-                    choice = chunk["choices"][0]
-                    if "delta" in choice and "content" in choice["delta"]:
-                        content = choice["delta"]["content"]
-                        print(content, end="", flush=True)
-                        final_content += content
-
-                # Store the latest usage information
-                if chunk.get('usage'):
-                    current_session_usage = chunk['usage']
-                time.sleep(0.05)
+            )
 
             total_usage["prompt_tokens"] += current_session_usage.get("prompt_tokens", 0)
             total_usage["completion_tokens"] += current_session_usage.get("completion_tokens", 0)
@@ -212,7 +201,7 @@ def process_conversation_streaming(messages: List[Dict[str, str]], tools: List[D
             # Add final response to conversation history
             conversation_history.append({
                 "role": "assistant",
-                "content": final_content
+                "content": accumulated_content
             })
 
         return conversation_history, total_usage

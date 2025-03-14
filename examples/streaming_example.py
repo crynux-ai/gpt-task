@@ -3,7 +3,7 @@ import sys
 import time
 
 from gpt_task.inference import run_task
-
+from gpt_task.models import GPTTaskStreamResponse
 import dotenv
 dotenv.load_dotenv()
 
@@ -24,20 +24,10 @@ print("Starting generation...", flush=True)
 
 # Enable streaming output
 usage = None
+
 try:
-    for chunk in run_task(
-        model="mistralai/Mistral-7B-Instruct-v0.1",
-        messages=messages,
-        stream=True,
-        generation_config={
-            "repetition_penalty": 1.1,
-            "do_sample": True,
-            "temperature": 0.7,
-            "max_new_tokens": 100
-        },
-        seed=42,
-        dtype="float16"
-    ):
+    def stream_callback(chunk: GPTTaskStreamResponse):
+        global usage  # Declare usage as nonlocal
         content = chunk["choices"][0]["delta"].get("content", "")
         finish_reason = chunk["choices"][0].get("finish_reason")
         chunk_usage = chunk["usage"]
@@ -56,7 +46,19 @@ try:
         if chunk_usage:
             usage = chunk_usage
 
-        time.sleep(0.1)
+    run_task(
+        model="mistralai/Mistral-7B-Instruct-v0.1",
+        messages=messages,
+        stream_callback=stream_callback,
+        generation_config={
+            "repetition_penalty": 1.1,
+            "do_sample": True,
+            "temperature": 0.7,
+            "max_new_tokens": 100
+        },
+        seed=42,
+        dtype="float16"
+    )
 
 except Exception as e:
     _logger.exception("Error during generation")
